@@ -13,7 +13,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        231
-Release:        2.fb3
+Release:        6.fb3
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        A System and Service Manager
@@ -23,6 +23,8 @@ Source0:        https://github.com/systemd/systemd/archive/v%{version}.tar.gz#/%
 # This file must be available before %prep.
 # It is generated during systemd build and can be found in src/core/.
 Source1:        triggers.systemd
+# SysV convert script.
+Source3:        systemd-sysv-convert
 
 # Prevent accidental removal of the systemd package
 Source4:        yum-protect-systemd.conf
@@ -60,8 +62,8 @@ BuildRequires:  intltool
 BuildRequires:  gperf
 BuildRequires:  gawk
 BuildRequires:  tree
-BuildRequires:  python34-devel
-BuildRequires:  python34-lxml
+# BuildRequires:  python34-devel
+# BuildRequires:  python34-lxml
 %ifarch %{ix86} x86_64 aarch64
 BuildRequires:  gnu-efi gnu-efi-devel
 %endif
@@ -81,7 +83,8 @@ Requires:       %{name}-pam = %{version}-%{release}
 Requires:       %{name}-libs = %{version}-%{release}
 Requires:       diffutils
 Requires:       util-linux
-Requires:       libxkbcommon%{?_isa}
+# don't explicitly require libxkbcommon
+#Requires:       libxkbcommon%{?_isa}
 Provides:       /bin/systemctl
 Provides:       /sbin/shutdown
 Provides:       syslog
@@ -112,6 +115,7 @@ Patch8: build-sys--conditionally-disable-LTO-if-requested.patch
 Patch9: logind--accept-empty-string-and--infinity--for-UserTasksMax.patch
 Patch10: core--add-cgroup-CPU-controller-support-on-the-unified-hierarchy.patch
 Patch11: core--introduce-UseRootFileSystemNamespace-option.patch
+Patch12: build-sys-check-for-lz4-in-the-old-and-new-numbering.patch
 
 
 
@@ -175,6 +179,14 @@ Obsoletes:      libudev-devel < 183
 Development headers and auxiliary files for developing applications linking
 to libudev or libsystemd.
 
+%package sysv
+Summary:        SysV tools for systemd
+License:        LGPLv2+
+Requires:       %{name} = %{version}-%{release}
+
+%description sysv
+SysV compatibility tools for systemd
+
 %package udev
 Summary: Rule-based device node and kernel event manager
 Requires:       %{name}%{?_isa} = %{version}-%{release}
@@ -185,6 +197,10 @@ Requires(post): grep
 Requires:       kmod >= 18-4
 # obsolete parent package so that dnf will install new subpackage on upgrade (#1260394)
 Obsoletes:      %{name} < 229-5
+# libgudev1 compatibility
+#Provides:       libgudev1 = %{version}
+Obsoletes:      libgudev1 < %{version}
+Requires:       libgudev = 230
 Provides:       udev = %{version}
 Obsoletes:      udev < 183
 License:        LGPLv2+
@@ -244,6 +260,7 @@ systemd-journal-remote, and systemd-journal-upload.
 %patch9 -p1
 %patch10 -p1
 %patch11 -p1
+%patch12 -p1
 
 
 
@@ -274,8 +291,6 @@ CONFIGURE_OPTS=(
         --libexecdir=%{_prefix}/lib
         --with-sysvinit-path=/etc/rc.d/init.d
         --with-rc-local-script-path-start=/etc/rc.d/rc.local
-        --with-ntp-servers='1.ntp.vip.facebook.com 2.ntp.vip.facebook.com 3.ntp.vip.facebook.com 4.ntp.vip.facebook.com'
-        --with-dns-servers='10.127.255.51 10.191.255.51 2401:db00:eef0:a53:: 2401:db00:eef0:b53::'
         --without-kill-user-processes
         --disable-lto
 )
@@ -283,8 +298,7 @@ CONFIGURE_OPTS=(
 %configure \
         "${CONFIGURE_OPTS[@]}" \
         --enable-compat-libs \
-        --enable-xkbcommon \
-        PYTHON=%{__python3}
+	--disable-xkbcommon
 make %{?_smp_mflags} GCC_COLORS="" V=1
 
 %install
@@ -308,6 +322,9 @@ ln -s ../bin/systemctl %{buildroot}%{_sbindir}/poweroff
 ln -s ../bin/systemctl %{buildroot}%{_sbindir}/shutdown
 ln -s ../bin/systemctl %{buildroot}%{_sbindir}/telinit
 ln -s ../bin/systemctl %{buildroot}%{_sbindir}/runlevel
+
+# Install SysV conversion tool for systemd
+install -m 0755 %{SOURCE3} %{buildroot}%{_bindir}/
 
 # Compatiblity and documentation files
 touch %{buildroot}/etc/crypttab
@@ -835,6 +852,9 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %{_libdir}/pkgconfig/libsystemd-journal.pc
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 %{_mandir}/man3/*
+
+%files sysv
+%{_bindir}/systemd-sysv-convert
 
 %files udev
 %dir %{_sysconfdir}/udev
